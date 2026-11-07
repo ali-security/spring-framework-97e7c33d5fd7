@@ -736,6 +736,160 @@ public class DataBinderTests {
 	}
 
 	@Test
+	public void testBindingWithMixedCaseDisallowedFieldsIsCaseInsensitive() throws BindException {
+		TestBean rod = new TestBean();
+		DataBinder binder = new DataBinder(rod);
+		binder.setDisallowedFields("aGe", "*OUChy", "SPOUSE.*");
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		pvs.add("name", "Rod");
+		pvs.add("AGE", "32");
+		pvs.add("touchy", "Rod");
+		pvs.add("spouse.name", "Kerry");
+
+		binder.bind(pvs);
+		binder.close();
+
+		assertThat(rod.getName()).as("changed name correctly").isEqualTo("Rod");
+		assertThat(rod.getAge()).as("did not change age").isEqualTo(0);
+		assertThat(rod.getTouchy()).as("did not change touchy").isNull();
+		assertThat(rod.getSpouse()).as("did not create spouse").isNull();
+		assertThat(binder.getBindingResult().getSuppressedFields())
+				.containsExactlyInAnyOrder("AGE", "touchy", "spouse.name");
+	}
+
+	@Test
+	public void testIsAllowedMatchesDisallowedPatternsIgnoringCase() {
+		DataBinder binder = new DataBinder(new TestBean());
+		binder.setDisallowedFields("age", "*Colour", "some*Map[*]", "SPOUSE.*");
+
+		// direct equality
+		assertThat(binder.isAllowed("age")).isFalse();
+		assertThat(binder.isAllowed("AGE")).isFalse();
+		assertThat(binder.isAllowed("Age")).isFalse();
+		// "*xxx"
+		assertThat(binder.isAllowed("favouriteColour")).isFalse();
+		assertThat(binder.isAllowed("FAVOURITECOLOUR")).isFalse();
+		// "xxx*yyy*"
+		assertThat(binder.isAllowed("someMap[key]")).isFalse();
+		assertThat(binder.isAllowed("SOMEMAP[KEY]")).isFalse();
+		// "xxx*"
+		assertThat(binder.isAllowed("spouse.name")).isFalse();
+		assertThat(binder.isAllowed("Spouse.Name")).isFalse();
+		// not matching
+		assertThat(binder.isAllowed("name")).isTrue();
+		assertThat(binder.isAllowed("ages")).isTrue();
+		assertThat(binder.isAllowed("touchy")).isTrue();
+	}
+
+	@Test
+	public void testSetDisallowedFieldsStoresCanonicalPatternsWithoutLowercasing() {
+		DataBinder binder = new DataBinder(new TestBean());
+		binder.setDisallowedFields("Age", "SomeMap['KEY3']", "SPOUSE.*");
+
+		assertThat(binder.getDisallowedFields()).containsExactly("Age", "SomeMap[KEY3]", "SPOUSE.*");
+	}
+
+	@Test
+	public void testDisallowedFieldMatchingIsLocaleIndependent() {
+		Locale original = Locale.getDefault();
+		try {
+			Locale.setDefault(new Locale("tr"));
+			DataBinder binder = new DataBinder(new TestBean());
+			binder.setDisallowedFields("jedi", "someIntArray", "SPOUSE.*");
+
+			assertThat(binder.isAllowed("JEDI")).isFalse();
+			assertThat(binder.isAllowed("Jedi")).isFalse();
+			assertThat(binder.isAllowed("SOMEINTARRAY")).isFalse();
+			assertThat(binder.isAllowed("spouse.name")).isFalse();
+		}
+		finally {
+			Locale.setDefault(original);
+		}
+	}
+
+	@Test
+	public void testBindingWithDisallowedFieldsAndDefaultTurkishLocale() throws BindException {
+		Locale original = Locale.getDefault();
+		try {
+			Locale.setDefault(new Locale("tr"));
+			Book book = new Book();
+			DataBinder binder = new DataBinder(book);
+			binder.setDisallowedFields("ISBN");
+			MutablePropertyValues pvs = new MutablePropertyValues();
+			pvs.add("title", "my book");
+			pvs.add("iSBN", "1234");
+
+			binder.bind(pvs);
+			binder.close();
+
+			assertThat(book.getTitle()).isEqualTo("my book");
+			assertThat(book.getISBN()).as("did not change ISBN").isNull();
+			assertThat(binder.getBindingResult().getSuppressedFields()).containsExactly("iSBN");
+		}
+		finally {
+			Locale.setDefault(original);
+		}
+	}
+
+	@Test
+	public void testBindingWithDisallowedFieldsAndCapitalLetterIWithDotAbove() throws BindException {
+		OptionalHolder bean = new OptionalHolder();
+		DataBinder binder = new DataBinder(bean);
+		binder.setDisallowedFields("id");
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		// LATIN CAPITAL LETTER I WITH DOT ABOVE: String#toLowerCase yields "i̇d",
+		// while property resolution (Character#toLowerCase) resolves it to "id".
+		pvs.add("İd", "1");
+
+		binder.bind(pvs);
+		binder.close();
+
+		assertThat(bean.getId()).as("did not change id").isNull();
+		assertThat(binder.getBindingResult().getSuppressedFields()).containsExactly("İd");
+	}
+
+	@Test
+	public void testBindingWithDisallowedFieldsAndSmallLetterDotlessI() throws BindException {
+		Book book = new Book();
+		DataBinder binder = new DataBinder(book);
+		binder.setDisallowedFields("isbn");
+		MutablePropertyValues pvs = new MutablePropertyValues();
+		pvs.add("title", "my book");
+		// LATIN SMALL LETTER DOTLESS I: String#toLowerCase leaves it unchanged,
+		// while property resolution (Character#toUpperCase) resolves it to "ISBN".
+		pvs.add("ıSBN", "1234");
+
+		binder.bind(pvs);
+		binder.close();
+
+		assertThat(book.getTitle()).isEqualTo("my book");
+		assertThat(book.getISBN()).as("did not change ISBN").isNull();
+		assertThat(binder.getBindingResult().getSuppressedFields()).containsExactly("ıSBN");
+	}
+
+	@Test
+	public void testIsAllowedMatchesDisallowedPatternsIgnoringCaseForDottedAndDotlessI() {
+		DataBinder binder = new DataBinder(new TestBean());
+		binder.setDisallowedFields("id", "is*", "*isbn", "*info*");
+
+		// direct equality
+		assertThat(binder.isAllowed("İd")).isFalse();
+		assertThat(binder.isAllowed("ıd")).isFalse();
+		// "xxx*"
+		assertThat(binder.isAllowed("ıSBN")).isFalse();
+		assertThat(binder.isAllowed("İSbn")).isFalse();
+		// "*xxx"
+		assertThat(binder.isAllowed("bookıSBN")).isFalse();
+		assertThat(binder.isAllowed("bookİsbn")).isFalse();
+		// "*xxx*"
+		assertThat(binder.isAllowed("bookınfo.title")).isFalse();
+		assertThat(binder.isAllowed("bookİNFO.title")).isFalse();
+		// not matching
+		assertThat(binder.isAllowed("name")).isTrue();
+		assertThat(binder.isAllowed("ıx")).isTrue();
+	}
+
+	@Test
 	public void testBindingWithAllowedFieldsUsingAsterisks() throws BindException {
 		TestBean rod = new TestBean();
 		DataBinder binder = new DataBinder(rod, "person");
